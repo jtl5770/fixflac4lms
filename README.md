@@ -7,18 +7,34 @@ metadata issues that can cause problems with [Lyrion Music Server
 ## The Problem
 
 LMS can sometimes struggle with **multi-valued Vorbis comments**,
-specifically MusicBrainz IDs. If a FLAC file contains multiple
-`MUSICBRAINZ_ARTISTID` tags (common when multiple artists are involved),
-LMS may incorrectly associate the *first* ID found with the *entire*
-Artist string (e.g., "Artist A, Artist B"). This causes "Artist A" to
-be incorrectly displayed as "Artist A, Artist B" on other albums that
-only feature Artist A.
+specifically MusicBrainz IDs. 
+
+The following is my current understanding of the problem, please add
+an issue if it is more complex in reality: If a FLAC file contains
+multiple e.g. `MUSICBRAINZ_ALBUMARTISTID` tags (common when multiple
+artists are involved), LMS may incorrectly associate the *first* ID
+found with the *entire* Artist string (e.g., "Artist A, Artist B"). This
+causes "Artist A" to be incorrectly displayed as "Artist A, Artist B"
+on other albums that only feature Artist A. Regardles of me getting
+all the details right here, the implemented solution fixed my problems
+with my music library on LMS.
+
+Another feature implemented here is the ability to automatically embed
+"cover.jpg" album art from the same folder into the tracks themselves
+(if no prior picture data is present). This may not be of relevant
+general use, but I made the unfortunate decision years ago not to
+embed the album art into the flac files. This feaiture helped me to
+correct them in one go.
 
 ## The Solution
 
 `fixflac4lms` scans your FLAC library and performs two main fixes:
 
-1.  **Merge MusicBrainz IDs:** It detects multiple instances of specific ID tags (`MUSICBRAINZ_ARTISTID`, `MUSICBRAINZ_ALBUMARTISTID`, and the experimentally verified `MUSICBRAINZ_RELEASE_ARTISTID`) and merges them into a single tag with values separated by `+`. This prevents the LMS bug while preserving the data.
+1.  **Merge MusicBrainz IDs:** It detects multiple instances of specific
+    ID tags (`MUSICBRAINZ_ARTISTID`, `MUSICBRAINZ_ALBUMARTISTID`, and the
+    experimentally verified `MUSICBRAINZ_RELEASE_ARTISTID`) and merges
+    them into a single tag with values separated by `+`. This prevents
+    the LMS bug while preserving the data.
 2.  **Embed Cover Art:** It checks for embedded cover art. If missing, it
     looks for a `cover.jpg` file in the same directory and embeds it.
 
