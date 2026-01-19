@@ -18,11 +18,7 @@ only feature Artist A.
 
 `fixflac4lms` scans your FLAC library and performs two main fixes:
 
-1.  **Merge MusicBrainz IDs:** It detects multiple instances of specific
-    ID tags (`MUSICBRAINZ_ARTISTID`, `MUSICBRAINZ_ALBUMARTISTID`,
-    `MUSICBRAINZ_RELEASE_ARTISTID`) and merges them into a single tag
-    with values separated by `+`. This prevents the LMS bug while
-    preserving the data.
+1.  **Merge MusicBrainz IDs:** It detects multiple instances of specific ID tags (`MUSICBRAINZ_ARTISTID`, `MUSICBRAINZ_ALBUMARTISTID`, and the experimentally verified `MUSICBRAINZ_RELEASE_ARTISTID`) and merges them into a single tag with values separated by `+`. This prevents the LMS bug while preserving the data.
 2.  **Embed Cover Art:** It checks for embedded cover art. If missing, it
     looks for a `cover.jpg` file in the same directory and embeds it.
 
