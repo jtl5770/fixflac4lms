@@ -68,3 +68,7 @@ the specific feature flags you want to enable.
 The tool will also scan for *other* multi-valued `MUSICBRAINZ_` tags (like
 `MUSICBRAINZ_RELEASEGROUPID`) and warn you if they exist, as they might
 also cause issues in LMS. These are not automatically modified.
+
+## Acknowledgment
+
+This program has been written with the extensive support of gemini-cli.
