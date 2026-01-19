@@ -23,7 +23,7 @@ Another feature implemented here is the ability to automatically embed
 "cover.jpg" album art from the same folder into the tracks themselves
 (if no prior picture data is present). This may not be of relevant
 general use, but I made the unfortunate decision years ago not to
-embed the album art into the flac files. This feaiture helped me to
+embed the album art into the flac files. This feature helped me to
 correct them in one go.
 
 ## The Solution
