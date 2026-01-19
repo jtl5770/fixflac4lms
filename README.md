@@ -15,7 +15,7 @@ multiple e.g. `MUSICBRAINZ_ALBUMARTISTID` tags (common when multiple
 artists are involved), LMS may incorrectly associate the *first* ID
 found with the *entire* Artist string (e.g., "Artist A, Artist B"). This
 causes "Artist A" to be incorrectly displayed as "Artist A, Artist B"
-on other albums that only feature Artist A. Regardles of me getting
+on other albums that only feature Artist A. Regardless of me getting
 all the details right here, the implemented solution fixed my problems
 with my music library on LMS.
 
