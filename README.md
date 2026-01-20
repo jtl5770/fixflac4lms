@@ -59,13 +59,16 @@ FLAC library in **Opus** format.
 *   This mode is exclusive and cannot be combined with the fixing modes.
 
 ### Progress Bar
-For a more visual experience, especially with large libraries, you can
-use the `--progress` flag. This displays a graphical progress bar and
-current status updates instead of a scrolling log. This is mutually
-exclusive with the `-v` (verbose) flag.
+By default, the tool displays a graphical progress bar and current status
+updates. This provides a visual experience suitable for large libraries.
+
+If you prefer a scrolling log or need to pipe output, you can disable the
+progress bar using the `--no-progress` flag. This is required if you want
+to use the `-v` (verbose) flag, as they are mutually exclusive.
 
 ```bash
-./fixflac4lms --progress --mb-ids -w /path/to/music
+# Disable progress bar (e.g. for logging or verbose output)
+./fixflac4lms --no-progress --mb-ids -w /path/to/music
 ```
 
 ## Installation

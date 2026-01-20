@@ -153,17 +153,17 @@ func main() {
 	noPrunePtr := flag.Bool("noprune", false, "Disable pruning of orphaned files in output directory (only with -convert-opus)")
 	coverNamePtr := flag.String("cover-name", "cover.jpg", "Filename for external cover art (default: cover.jpg)")
 	mergeTagsPtr := flag.String("merge-tags", "", "Comma-separated list of tags to merge (overrides defaults)")
-	progressPtr := flag.Bool("progress", false, "Show progress bar")
+	noProgressPtr := flag.Bool("no-progress", false, "Disable progress bar")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
-		fmt.Println("Usage: fixflac4lms [-w] [-v] [--progress] [--mb-ids] [--embed-cover] [--convert-opus <dir> [--noprune]] [--cover-name <name>] [--merge-tags <tags>] <path>")
+		fmt.Println("Usage: fixflac4lms [-w] [-v] [--no-progress] [--mb-ids] [--embed-cover] [--convert-opus <dir> [--noprune]] [--cover-name <name>] [--merge-tags <tags>] <path>")
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
 
-	if *verbosePtr && *progressPtr {
-		fmt.Fprintln(os.Stderr, "Error: -v and --progress are mutually exclusive")
+	if *verbosePtr && !*noProgressPtr {
+		fmt.Fprintln(os.Stderr, "Error: -v and progress bar (enabled by default) are mutually exclusive. Use --no-progress with -v.")
 		os.Exit(1)
 	}
 
@@ -190,7 +190,7 @@ func main() {
 		NoPrune:     *noPrunePtr,
 		CoverName:   *coverNamePtr,
 		MergeTags:   mergeTags,
-		Progress:    *progressPtr,
+		Progress:    !*noProgressPtr,
 	}
 
 	// Check conflicts if converting
