@@ -14,7 +14,18 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/progress"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/go-flac/go-flac"
+)
+
+type LogLevel int
+
+const (
+	LogInfo LogLevel = iota
+	LogVerbose
+	LogWarn
 )
 
 type Config struct {
@@ -26,6 +37,29 @@ type Config struct {
 	NoPrune     bool
 	CoverName   string
 	MergeTags   []string
+	Progress    bool
+	LogFunc     func(level LogLevel, format string, args ...interface{})
+}
+
+func (c Config) Log(level LogLevel, format string, args ...interface{}) {
+	if c.LogFunc != nil {
+		c.LogFunc(level, format, args...)
+	} else {
+		// Default logging if no function provided
+		if level == LogVerbose && !c.Verbose {
+			return
+		}
+		prefix := ""
+		if level == LogWarn {
+			prefix = "Warning: "
+		}
+		msg := fmt.Sprintf(format, args...)
+		if level == LogWarn {
+			fmt.Fprint(os.Stderr, prefix+msg)
+		} else {
+			fmt.Print(prefix + msg)
+		}
+	}
 }
 
 type VorbisComment struct {
@@ -119,11 +153,17 @@ func main() {
 	noPrunePtr := flag.Bool("noprune", false, "Disable pruning of orphaned files in output directory (only with -convert-opus)")
 	coverNamePtr := flag.String("cover-name", "cover.jpg", "Filename for external cover art (default: cover.jpg)")
 	mergeTagsPtr := flag.String("merge-tags", "", "Comma-separated list of tags to merge (overrides defaults)")
+	progressPtr := flag.Bool("progress", false, "Show progress bar")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
-		fmt.Println("Usage: fixflac4lms [-w] [-v] [--mb-ids] [--embed-cover] [-convert-opus <dir> [-noprune]] [--cover-name <name>] [--merge-tags <tags>] <path>")
+		fmt.Println("Usage: fixflac4lms [-w] [-v] [--progress] [--mb-ids] [--embed-cover] [-convert-opus <dir> [-noprune]] [--cover-name <name>] [--merge-tags <tags>] <path>")
 		flag.PrintDefaults()
+		os.Exit(1)
+	}
+
+	if *verbosePtr && *progressPtr {
+		fmt.Fprintln(os.Stderr, "Error: -v and --progress are mutually exclusive")
 		os.Exit(1)
 	}
 
@@ -150,6 +190,7 @@ func main() {
 		NoPrune:     *noPrunePtr,
 		CoverName:   *coverNamePtr,
 		MergeTags:   mergeTags,
+		Progress:    *progressPtr,
 	}
 
 	// Check conflicts if converting
@@ -173,6 +214,14 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error accessing path %s: %v\n", path, err)
 		os.Exit(1)
+	}
+
+	if config.Progress {
+		if err := runWithProgress(path, info, config); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	if info.IsDir() {
@@ -207,7 +256,7 @@ func main() {
 
 		// Prune output directory if converting and not disabled
 		if config.ConvertOpus != "" && !config.NoPrune {
-			if err := pruneOutput(absInputRoot, config.ConvertOpus, config.Verbose); err != nil {
+			if err := pruneOutput(absInputRoot, config.ConvertOpus, config.Verbose, config); err != nil {
 				fmt.Fprintf(os.Stderr, "Error pruning output: %v\n", err)
 			}
 		}
@@ -261,14 +310,12 @@ func convertOpus(inputFile string, inputRoot string, config Config) error {
 
 	if outStat, err := os.Stat(outputFile); err == nil {
 		if !inStat.ModTime().After(outStat.ModTime()) {
-			if config.Verbose {
-				fmt.Printf("Skipping (up to date): %s\n", relPath)
-			}
+			config.Log(LogVerbose, "Skipping (up to date): %s\n", relPath)
 			return nil
 		}
 	}
 
-	fmt.Printf("Converting: %s\n", relPath)
+	config.Log(LogInfo, "Converting: %s\n", relPath)
 
 	// Atomic write: convert to .tmp first
 	tempOutputFile := outputFile + ".tmp"
@@ -277,7 +324,7 @@ func convertOpus(inputFile string, inputRoot string, config Config) error {
 	cmd := exec.Command("opusenc", absInputFile, tempOutputFile)
 
 	// Handle output
-	if config.Verbose {
+	if config.Verbose && !config.Progress {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	} else {
@@ -306,7 +353,7 @@ func convertOpus(inputFile string, inputRoot string, config Config) error {
 	return nil
 }
 
-func pruneOutput(inputRoot, outputRoot string, verbose bool) error {
+func pruneOutput(inputRoot, outputRoot string, _ bool, config Config) error {
 	// We need to walk the output tree in reverse order (contents before directories)
 	// to effectively remove empty directories. However, WalkDir doesn't support reverse.
 	// So we'll remove files first, then do a second pass for directories or handle dirs specially.
@@ -331,9 +378,7 @@ func pruneOutput(inputRoot, outputRoot string, verbose bool) error {
 
 		// Clean up stale temp files
 		if strings.HasSuffix(path, ".opus.tmp") {
-			if verbose {
-				fmt.Printf("Removing stale temp file: %s\n", path)
-			}
+			config.Log(LogVerbose, "Removing stale temp file: %s\n", path)
 			return os.Remove(path)
 		}
 
@@ -350,9 +395,7 @@ func pruneOutput(inputRoot, outputRoot string, verbose bool) error {
 			// Check existence (case-insensitive check would be better but expensive,
 			// relying on standard stat for now as we mirrored it)
 			if _, err := os.Stat(expectedFlac); os.IsNotExist(err) {
-				if verbose {
-					fmt.Printf("Removing orphan: %s\n", path)
-				}
+				config.Log(LogVerbose, "Removing orphan: %s\n", path)
 				return os.Remove(path)
 			}
 		}
@@ -384,9 +427,7 @@ func pruneOutput(inputRoot, outputRoot string, verbose bool) error {
 }
 
 func fixFlac(filename string, config Config) error {
-	if config.Verbose {
-		fmt.Printf("Processing %s\n", filename)
-	}
+	config.Log(LogVerbose, "Processing %s\n", filename)
 
 	f, err := flac.ParseFile(filename)
 	if err != nil {
@@ -420,11 +461,11 @@ func fixFlac(filename string, config Config) error {
 	}
 
 	if !config.Write {
-		fmt.Printf("[DRY-RUN] Changes detected for %s, but not saving.\n", filename)
+		config.Log(LogInfo, "[DRY-RUN] Changes detected for %s, but not saving.\n", filename)
 		return nil
 	}
 
-	fmt.Printf("Saving changes to %s...\n", filename)
+	config.Log(LogInfo, "Saving changes to %s...\n", filename)
 	return f.Save(filename)
 }
 
@@ -491,7 +532,7 @@ func processMBIDs(filename string, f *flac.File, config Config) (bool, error) {
 	// Check for warnings on non-target MB tags
 	for key, values := range tagValues {
 		if !isTarget(key) && len(values) > 1 {
-			fmt.Fprintf(os.Stderr, "Warning: %s: Multiple values found for %s (Count: %d). This might confuse LMS.\n", filename, key, len(values))
+			config.Log(LogWarn, "%s: Multiple values found for %s (Count: %d). This might confuse LMS.\n", filename, key, len(values))
 		}
 	}
 
@@ -500,7 +541,7 @@ func processMBIDs(filename string, f *flac.File, config Config) (bool, error) {
 		ids := tagValues[t]
 		if len(ids) > 0 {
 			if len(ids) > 1 {
-				fmt.Printf("%s: Merging %d %s\n", filename, len(ids), t)
+				config.Log(LogInfo, "%s: Merging %d %s\n", filename, len(ids), t)
 				combined := strings.Join(ids, "+")
 				newComments = append(newComments, t+"="+combined)
 				modified = true
@@ -533,12 +574,12 @@ func processCover(filename string, f *flac.File, config Config) (bool, error) {
 	coverPath := filepath.Join(dir, config.CoverName)
 
 	if _, err := os.Stat(coverPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Warning: %s: No embedded cover and no %s found\n", filename, config.CoverName)
+		config.Log(LogWarn, "%s: No embedded cover and no %s found\n", filename, config.CoverName)
 		return false, nil
 	}
 
 	// Found cover.jpg, embed it
-	fmt.Printf("%s: Embedding %s\n", filename, config.CoverName)
+	config.Log(LogInfo, "%s: Embedding %s\n", filename, config.CoverName)
 
 	file, err := os.Open(coverPath)
 	if err != nil {
@@ -580,4 +621,200 @@ func processCover(filename string, f *flac.File, config Config) (bool, error) {
 
 	f.Meta = append(f.Meta, block)
 	return true, nil
+}
+
+func runWithProgress(path string, info os.FileInfo, config Config) error {
+	// 1. Count files
+	fmt.Print("Counting files...")
+	total, err := countFlacFiles(path, info)
+	if err != nil {
+		return err
+	}
+	// \r moves cursor to start of line, \x1b[2K clears the entire line
+	fmt.Printf("\r\x1b[2KFound %d FLAC files.\n", total)
+
+	if total == 0 {
+		return nil
+	}
+
+	// 2. Setup channel and model
+	msgChan := make(chan tea.Msg, 100)
+
+	prog := progress.New(progress.WithDefaultGradient())
+
+	m := model{
+		progress: prog,
+		total:    total,
+		sub:      msgChan,
+	}
+
+	p := tea.NewProgram(m)
+
+	// 3. Start worker
+	go func() {
+		defer func() { msgChan <- doneMsg{} }()
+
+		// Custom logger for config
+		config.LogFunc = func(level LogLevel, format string, args ...interface{}) {
+			if level == LogInfo || level == LogWarn {
+				msgChan <- statusMsg(fmt.Sprintf(format, args...))
+			}
+		}
+
+		if info.IsDir() {
+			absInputRoot, err := filepath.Abs(path)
+			if err != nil {
+				config.Log(LogWarn, "Error getting absolute path: %v\n", err)
+				return
+			}
+
+			err = filepath.WalkDir(path, func(filePath string, d os.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if !d.IsDir() && strings.EqualFold(filepath.Ext(filePath), ".flac") {
+					// Notify progress increment *after* processing
+					defer func() { msgChan <- progressMsg{} }()
+
+					if config.ConvertOpus != "" {
+						if err := convertOpus(filePath, absInputRoot, config); err != nil {
+							config.Log(LogWarn, "Error converting %s: %v\n", filePath, err)
+						}
+					} else {
+						if err := fixFlac(filePath, config); err != nil {
+							config.Log(LogWarn, "Error processing %s: %v\n", filePath, err)
+						}
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				config.Log(LogWarn, "Error walking directory: %v\n", err)
+			}
+
+			if config.ConvertOpus != "" && !config.NoPrune {
+				if err := pruneOutput(absInputRoot, config.ConvertOpus, false, config); err != nil {
+					config.Log(LogWarn, "Error pruning output: %v\n", err)
+				}
+			}
+
+		} else {
+			// Single file
+			defer func() { msgChan <- progressMsg{} }()
+			if config.ConvertOpus != "" {
+				absInputRoot := filepath.Dir(path)
+				if err := convertOpus(path, absInputRoot, config); err != nil {
+					config.Log(LogWarn, "Error converting %s: %v\n", path, err)
+				}
+			} else {
+				if err := fixFlac(path, config); err != nil {
+					config.Log(LogWarn, "Error processing %s: %v\n", path, err)
+				}
+			}
+		}
+	}()
+
+	if _, err := p.Run(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func countFlacFiles(path string, info os.FileInfo) (int, error) {
+	if !info.IsDir() {
+		if strings.EqualFold(filepath.Ext(path), ".flac") {
+			return 1, nil
+		}
+		return 0, nil
+	}
+
+	count := 0
+	err := filepath.WalkDir(path, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.EqualFold(filepath.Ext(path), ".flac") {
+			count++
+		}
+		return nil
+	})
+	return count, err
+}
+
+// --- Bubble Tea Model ---
+
+type (
+	progressMsg struct{}
+	statusMsg   string
+	doneMsg     struct{}
+)
+
+type model struct {
+	progress  progress.Model
+	total     int
+	processed int
+	status    string
+	quitting  bool
+	sub       chan tea.Msg
+}
+
+func (m model) Init() tea.Cmd {
+	return tea.Batch(
+		waitForActivity(m.sub),
+	)
+}
+
+func waitForActivity(sub chan tea.Msg) tea.Cmd {
+	return func() tea.Msg {
+		return <-sub
+	}
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if msg.String() == "ctrl+c" || msg.String() == "q" {
+			m.quitting = true
+			return m, tea.Quit
+		}
+	case tea.WindowSizeMsg:
+		m.progress.Width = msg.Width - 4
+		return m, nil
+	case progressMsg:
+		m.processed++
+		if m.processed > m.total {
+			m.processed = m.total
+		}
+		pct := float64(m.processed) / float64(m.total)
+		cmd := m.progress.SetPercent(pct)
+		return m, tea.Batch(cmd, waitForActivity(m.sub))
+
+	case statusMsg:
+		m.status = strings.TrimSpace(string(msg))
+		return m, waitForActivity(m.sub)
+
+	case doneMsg:
+		m.quitting = true
+		return m, tea.Quit
+
+	case progress.FrameMsg:
+		progressModel, cmd := m.progress.Update(msg)
+		m.progress = progressModel.(progress.Model)
+		return m, cmd
+	}
+	return m, nil
+}
+
+func (m model) View() string {
+	if m.quitting {
+		return ""
+	}
+
+	s := "\n" + m.progress.View() + "\n\n"
+	if m.status != "" {
+		s += lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Render(m.status) + "\n"
+	} else {
+		s += "\n" // Keep layout stable
+	}
+	return s
 }

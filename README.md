@@ -56,6 +56,16 @@ FLAC library in **Opus** format.
     are correctly copied to the new files.
 *   This mode is exclusive and cannot be combined with the fixing modes.
 
+### Progress Bar
+For a more visual experience, especially with large libraries, you can
+use the `--progress` flag. This displays a graphical progress bar and
+current status updates instead of a scrolling log. This is mutually
+exclusive with the `-v` (verbose) flag.
+
+```bash
+./fixflac4lms --progress --mb-ids -w /path/to/music
+```
+
 ## Installation
 
 Requires [Go](https://go.dev/).  For Opus conversion, you must have `opusenc` installed and
