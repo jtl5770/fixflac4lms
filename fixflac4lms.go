@@ -656,8 +656,13 @@ func runWithProgress(path string, info os.FileInfo, config Config) error {
 
 	// Print Summary
 	if finalM, ok := finalModel.(model); ok && finalM.total > 0 {
-		fmt.Println("\nProcessing Complete.")
-		fmt.Printf("Total Files Scanned: %d\n", finalM.stats.totalFiles)
+		if finalM.interrupted {
+			fmt.Println("\nProcessing Interrupted!")
+		} else {
+			fmt.Println("\nProcessing Complete.")
+		}
+		fmt.Printf("Files Processed: %d / %d\n", finalM.processed, finalM.total)
+
 		if config.ConvertOpus != "" {
 			fmt.Printf("Files Converted to Opus: %d\n", finalM.stats.converted)
 		} else {
@@ -797,7 +802,6 @@ const (
 )
 
 type Stats struct {
-	totalFiles    int
 	mbMerged      int
 	coverEmbedded int
 	converted     int
@@ -816,14 +820,15 @@ type (
 )
 
 type model struct {
-	state     appState
-	progress  progress.Model
-	total     int
-	processed int
-	stats     Stats // Aggregated stats
-	status    string
-	quitting  bool
-	sub       chan tea.Msg
+	state       appState
+	progress    progress.Model
+	total       int
+	processed   int
+	interrupted bool
+	stats       Stats // Aggregated stats
+	status      string
+	quitting    bool
+	sub         chan tea.Msg
 
 	// Context for worker
 	path   string
@@ -862,6 +867,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" || msg.String() == "q" {
+			m.interrupted = true
 			m.quitting = true
 			return m, tea.Quit
 		}
@@ -871,7 +877,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case countMsg:
 		m.total = int(msg)
-		m.stats.totalFiles = m.total
 		if m.total == 0 {
 			m.quitting = true
 			return m, tea.Quit
