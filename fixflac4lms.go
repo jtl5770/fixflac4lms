@@ -38,10 +38,10 @@ type Config struct {
 	CoverName   string
 	MergeTags   []string
 	Progress    bool
-	LogFunc     func(level LogLevel, format string, args ...interface{})
+	LogFunc     func(level LogLevel, format string, args ...any)
 }
 
-func (c Config) Log(level LogLevel, format string, args ...interface{}) {
+func (c Config) Log(level LogLevel, format string, args ...any) {
 	if c.LogFunc != nil {
 		c.LogFunc(level, format, args...)
 	} else {
@@ -238,11 +238,11 @@ func main() {
 			}
 			if !d.IsDir() && strings.EqualFold(filepath.Ext(filePath), ".flac") {
 				if config.ConvertOpus != "" {
-					if err := convertOpus(filePath, absInputRoot, config); err != nil {
+					if _, err := convertOpus(filePath, absInputRoot, config); err != nil {
 						return fmt.Errorf("converting %s: %w", filePath, err)
 					}
 				} else {
-					if err := fixFlac(filePath, config); err != nil {
+					if _, err := fixFlac(filePath, config); err != nil {
 						return fmt.Errorf("processing %s: %w", filePath, err)
 					}
 				}
@@ -267,12 +267,12 @@ func main() {
 			if absPath, err := filepath.Abs(absInputRoot); err == nil {
 				absInputRoot = absPath
 			}
-			if err := convertOpus(path, absInputRoot, config); err != nil {
+			if _, err := convertOpus(path, absInputRoot, config); err != nil {
 				fmt.Fprintf(os.Stderr, "Error converting %s: %v\n", path, err)
 				os.Exit(1)
 			}
 		} else {
-			if err := fixFlac(path, config); err != nil {
+			if _, err := fixFlac(path, config); err != nil {
 				fmt.Fprintf(os.Stderr, "Error processing %s: %v\n", path, err)
 				os.Exit(1)
 			}
@@ -280,16 +280,16 @@ func main() {
 	}
 }
 
-func convertOpus(inputFile string, inputRoot string, config Config) error {
+func convertOpus(inputFile string, inputRoot string, config Config) (bool, error) {
 	absInputFile, err := filepath.Abs(inputFile)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// Calculate relative path from input root
 	relPath, err := filepath.Rel(inputRoot, absInputFile)
 	if err != nil {
-		return fmt.Errorf("failed to get relative path: %w", err)
+		return false, fmt.Errorf("failed to get relative path: %w", err)
 	}
 
 	// Determine output filename
@@ -299,19 +299,19 @@ func convertOpus(inputFile string, inputRoot string, config Config) error {
 	// Ensure output directory exists
 	outputDir := filepath.Dir(outputFile)
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
+		return false, fmt.Errorf("failed to create output directory: %w", err)
 	}
 
 	// Check if up to date
 	inStat, err := os.Stat(absInputFile)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if outStat, err := os.Stat(outputFile); err == nil {
 		if !inStat.ModTime().After(outStat.ModTime()) {
 			config.Log(LogVerbose, "Skipping (up to date): %s\n", relPath)
-			return nil
+			return false, nil
 		}
 	}
 
@@ -331,26 +331,26 @@ func convertOpus(inputFile string, inputRoot string, config Config) error {
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("opusenc failed: %v, stderr: %s", err, stderr.String())
+			return false, fmt.Errorf("opusenc failed: %v, stderr: %s", err, stderr.String())
 		}
 		// If successful, rename
 		if err := os.Rename(tempOutputFile, outputFile); err != nil {
-			return fmt.Errorf("failed to rename temp file: %w", err)
+			return false, fmt.Errorf("failed to rename temp file: %w", err)
 		}
-		return nil
+		return true, nil
 	}
 
 	if err := cmd.Run(); err != nil {
 		// Clean up temp file on failure
 		os.Remove(tempOutputFile)
-		return fmt.Errorf("opusenc failed: %w", err)
+		return false, fmt.Errorf("opusenc failed: %w", err)
 	}
 
 	if err := os.Rename(tempOutputFile, outputFile); err != nil {
-		return fmt.Errorf("failed to rename temp file: %w", err)
+		return false, fmt.Errorf("failed to rename temp file: %w", err)
 	}
 
-	return nil
+	return true, nil
 }
 
 func pruneOutput(inputRoot, outputRoot string, _ bool, config Config) error {
@@ -430,12 +430,18 @@ func pruneOutput(inputRoot, outputRoot string, _ bool, config Config) error {
 	return nil
 }
 
-func fixFlac(filename string, config Config) error {
+type FixStats struct {
+	MBIDsFixed    bool
+	CoverEmbedded bool
+}
+
+func fixFlac(filename string, config Config) (FixStats, error) {
+	stats := FixStats{}
 	config.Log(LogVerbose, "Processing %s\n", filename)
 
 	f, err := flac.ParseFile(filename)
 	if err != nil {
-		return fmt.Errorf("failed to parse flac file: %w", err)
+		return stats, fmt.Errorf("failed to parse flac file: %w", err)
 	}
 
 	modified := false
@@ -443,34 +449,36 @@ func fixFlac(filename string, config Config) error {
 	if config.FixMBIDs {
 		m, err := processMBIDs(filename, f, config)
 		if err != nil {
-			return err
+			return stats, err
 		}
 		if m {
 			modified = true
+			stats.MBIDsFixed = true
 		}
 	}
 
 	if config.EmbedCover {
 		m, err := processCover(filename, f, config)
 		if err != nil {
-			return err
+			return stats, err
 		}
 		if m {
 			modified = true
+			stats.CoverEmbedded = true
 		}
 	}
 
 	if !modified {
-		return nil
+		return stats, nil
 	}
 
 	if !config.Write {
 		config.Log(LogInfo, "[DRY-RUN] Changes detected for %s, but not saving.\n", filename)
-		return nil
+		return stats, nil
 	}
 
 	config.Log(LogInfo, "Saving changes to %s...\n", filename)
-	return f.Save(filename)
+	return stats, f.Save(filename)
 }
 
 func processMBIDs(filename string, f *flac.File, config Config) (bool, error) {
@@ -628,99 +636,40 @@ func processCover(filename string, f *flac.File, config Config) (bool, error) {
 }
 
 func runWithProgress(path string, info os.FileInfo, config Config) error {
-	// 1. Count files
-	fmt.Print("Counting files...")
-	total, err := countFlacFiles(path, info)
-	if err != nil {
-		return err
-	}
-	// \r moves cursor to start of line, \x1b[2K clears the entire line
-	fmt.Printf("\r\x1b[2KFound %d FLAC files.\n", total)
-
-	if total == 0 {
-		return nil
-	}
-
-	// 2. Setup channel and model
 	msgChan := make(chan tea.Msg, 100)
-
 	prog := progress.New(progress.WithDefaultGradient())
 
 	m := model{
+		state:    stateCounting,
 		progress: prog,
-		total:    total,
 		sub:      msgChan,
+		path:     path,
+		info:     info,
+		config:   config,
 	}
 
 	p := tea.NewProgram(m)
-
-	// 3. Start worker
-	go func() {
-		defer func() { msgChan <- doneMsg{} }()
-
-		// Custom logger for config
-		config.LogFunc = func(level LogLevel, format string, args ...interface{}) {
-			if level == LogInfo || level == LogWarn {
-				msgChan <- statusMsg(fmt.Sprintf(format, args...))
-			}
-		}
-
-		if info.IsDir() {
-			absInputRoot, err := filepath.Abs(path)
-			if err != nil {
-				config.Log(LogWarn, "Error getting absolute path: %v\n", err)
-				return
-			}
-
-			err = filepath.WalkDir(path, func(filePath string, d os.DirEntry, err error) error {
-				if err != nil {
-					return err
-				}
-				if !d.IsDir() && strings.EqualFold(filepath.Ext(filePath), ".flac") {
-					// Notify progress increment *after* processing
-					defer func() { msgChan <- progressMsg{} }()
-
-					if config.ConvertOpus != "" {
-						if err := convertOpus(filePath, absInputRoot, config); err != nil {
-							config.Log(LogWarn, "Error converting %s: %v\n", filePath, err)
-						}
-					} else {
-						if err := fixFlac(filePath, config); err != nil {
-							config.Log(LogWarn, "Error processing %s: %v\n", filePath, err)
-						}
-					}
-				}
-				return nil
-			})
-			if err != nil {
-				config.Log(LogWarn, "Error walking directory: %v\n", err)
-			}
-
-			if config.ConvertOpus != "" && !config.NoPrune {
-				if err := pruneOutput(absInputRoot, config.ConvertOpus, false, config); err != nil {
-					config.Log(LogWarn, "Error pruning output: %v\n", err)
-				}
-			}
-
-		} else {
-			// Single file
-			defer func() { msgChan <- progressMsg{} }()
-			if config.ConvertOpus != "" {
-				absInputRoot := filepath.Dir(path)
-				if err := convertOpus(path, absInputRoot, config); err != nil {
-					config.Log(LogWarn, "Error converting %s: %v\n", path, err)
-				}
-			} else {
-				if err := fixFlac(path, config); err != nil {
-					config.Log(LogWarn, "Error processing %s: %v\n", path, err)
-				}
-			}
-		}
-	}()
-
-	if _, err := p.Run(); err != nil {
+	finalModel, err := p.Run()
+	if err != nil {
 		return err
 	}
+
+	// Print Summary
+	if finalM, ok := finalModel.(model); ok && finalM.total > 0 {
+		fmt.Println("\nProcessing Complete.")
+		fmt.Printf("Total Files Scanned: %d\n", finalM.stats.totalFiles)
+		if config.ConvertOpus != "" {
+			fmt.Printf("Files Converted to Opus: %d\n", finalM.stats.converted)
+		} else {
+			if config.FixMBIDs {
+				fmt.Printf("Files with MB IDs Fixed: %d\n", finalM.stats.mbMerged)
+			}
+			if config.EmbedCover {
+				fmt.Printf("Files with Covers Embedded: %d\n", finalM.stats.coverEmbedded)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -745,27 +694,162 @@ func countFlacFiles(path string, info os.FileInfo) (int, error) {
 	return count, err
 }
 
+// processFiles is the worker function that processes the files
+func processFiles(path string, info os.FileInfo, config Config, msgChan chan tea.Msg) {
+	defer func() { msgChan <- doneMsg{} }()
+
+	// Custom logger for config
+	config.LogFunc = func(level LogLevel, format string, args ...interface{}) {
+		if level == LogInfo || level == LogWarn {
+			msgChan <- statusMsg(fmt.Sprintf(format, args...))
+		}
+	}
+
+	if info.IsDir() {
+		absInputRoot, err := filepath.Abs(path)
+		if err != nil {
+			config.Log(LogWarn, "Error getting absolute path: %v\n", err)
+			return
+		}
+
+		err = filepath.WalkDir(path, func(filePath string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !d.IsDir() && strings.EqualFold(filepath.Ext(filePath), ".flac") {
+				stats := StatsMsg{}
+				var processingErr error
+
+				if config.ConvertOpus != "" {
+					converted, err := convertOpus(filePath, absInputRoot, config)
+					processingErr = err
+					if converted {
+						stats.Converted = true
+					}
+				} else {
+					fs, err := fixFlac(filePath, config)
+					processingErr = err
+					if fs.MBIDsFixed {
+						stats.MBMerged = true
+					}
+					if fs.CoverEmbedded {
+						stats.CoverEmbedded = true
+					}
+				}
+
+				if processingErr != nil {
+					config.Log(LogWarn, "Error processing %s: %v\n", filePath, processingErr)
+				}
+
+				// Send stats update
+				msgChan <- stats
+			}
+			return nil
+		})
+		if err != nil {
+			config.Log(LogWarn, "Error walking directory: %v\n", err)
+		}
+
+		if config.ConvertOpus != "" && !config.NoPrune {
+			if err := pruneOutput(absInputRoot, config.ConvertOpus, false, config); err != nil {
+				config.Log(LogWarn, "Error pruning output: %v\n", err)
+			}
+		}
+
+	} else {
+		// Single file
+		stats := StatsMsg{}
+		var processingErr error
+
+		if config.ConvertOpus != "" {
+			absInputRoot := filepath.Dir(path)
+			converted, err := convertOpus(path, absInputRoot, config)
+			processingErr = err
+			if converted {
+				stats.Converted = true
+			}
+		} else {
+			fs, err := fixFlac(path, config)
+			processingErr = err
+			if fs.MBIDsFixed {
+				stats.MBMerged = true
+			}
+			if fs.CoverEmbedded {
+				stats.CoverEmbedded = true
+			}
+		}
+
+		if processingErr != nil {
+			config.Log(LogWarn, "Error processing %s: %v\n", path, processingErr)
+		}
+		msgChan <- stats
+	}
+}
+
 // --- Bubble Tea Model ---
 
+type appState int
+
+const (
+	stateCounting appState = iota
+	stateProcessing
+	stateDone
+)
+
+type Stats struct {
+	totalFiles    int
+	mbMerged      int
+	coverEmbedded int
+	converted     int
+}
+
 type (
-	progressMsg struct{}
-	statusMsg   string
-	doneMsg     struct{}
+	StatsMsg struct {
+		MBMerged      bool
+		CoverEmbedded bool
+		Converted     bool
+	}
+	statusMsg string
+	doneMsg   struct{}
+	countMsg  int
+	errMsg    error
 )
 
 type model struct {
+	state     appState
 	progress  progress.Model
 	total     int
 	processed int
+	stats     Stats // Aggregated stats
 	status    string
 	quitting  bool
 	sub       chan tea.Msg
+
+	// Context for worker
+	path   string
+	info   os.FileInfo
+	config Config
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(
-		waitForActivity(m.sub),
-	)
+	return countFilesCmd(m.path, m.info)
+}
+
+func countFilesCmd(path string, info os.FileInfo) tea.Cmd {
+	return func() tea.Msg {
+		n, err := countFlacFiles(path, info)
+		if err != nil {
+			return errMsg(err)
+		}
+		return countMsg(n)
+	}
+}
+
+func startWorkerCmd(sub chan tea.Msg, path string, info os.FileInfo, config Config) tea.Cmd {
+	return func() tea.Msg {
+		go processFiles(path, info, config, sub)
+		return nil
+	}
 }
 
 func waitForActivity(sub chan tea.Msg) tea.Cmd {
@@ -784,14 +868,49 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.progress.Width = msg.Width - 4
 		return m, nil
-	case progressMsg:
-		m.processed++
-		if m.processed > m.total {
-			m.processed = m.total
+
+	case countMsg:
+		m.total = int(msg)
+		m.stats.totalFiles = m.total
+		if m.total == 0 {
+			m.quitting = true
+			return m, tea.Quit
 		}
-		pct := float64(m.processed) / float64(m.total)
-		cmd := m.progress.SetPercent(pct)
-		return m, tea.Batch(cmd, waitForActivity(m.sub))
+		m.state = stateProcessing
+		return m, tea.Batch(
+			startWorkerCmd(m.sub, m.path, m.info, m.config),
+			waitForActivity(m.sub),
+		)
+
+	case errMsg:
+		m.status = fmt.Sprintf("Error: %v", msg)
+		m.quitting = true
+		return m, tea.Quit
+
+	case StatsMsg:
+		// Increment progress
+		if m.state == stateProcessing {
+			m.processed++
+			// Update aggregated stats
+			if msg.MBMerged {
+				m.stats.mbMerged++
+			}
+			if msg.CoverEmbedded {
+				m.stats.coverEmbedded++
+			}
+			if msg.Converted {
+				m.stats.converted++
+			}
+
+			// Update progress bar
+			pct := float64(m.processed) / float64(m.total)
+			if pct > 1.0 {
+				pct = 1.0
+			}
+			cmd := m.progress.SetPercent(pct)
+			return m, tea.Batch(cmd, waitForActivity(m.sub))
+		}
+		return m, waitForActivity(m.sub)
 
 	case statusMsg:
 		m.status = strings.TrimSpace(string(msg))
@@ -812,6 +931,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() string {
 	if m.quitting {
 		return ""
+	}
+
+	if m.state == stateCounting {
+		return "\nCounting files...\n"
 	}
 
 	s := "\n" + m.progress.View() + "\n\n"

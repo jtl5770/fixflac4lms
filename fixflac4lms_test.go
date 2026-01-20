@@ -72,7 +72,7 @@ func TestPictureMarshal(t *testing.T) {
 	if val != uint32(len("image/jpeg")) {
 		t.Errorf("Expected MimeType length %d, got %d", len("image/jpeg"), val)
 	}
-	
+
 	// Skip MimeType string
 	r.Seek(int64(len("image/jpeg")), 1)
 
@@ -93,60 +93,38 @@ func TestPictureMarshal(t *testing.T) {
 }
 
 func TestConfigValidation(t *testing.T) {
-
 	// Valid config: just converting
 
 	c1 := Config{ConvertOpus: "/tmp/out"}
 
 	if c1.ConvertOpus == "" {
-
 		t.Error("ConvertOpus should be set")
-
 	}
-
-	
 
 	// Valid config: converting with noprune
 
-	c2 := Config{ConvertOpus: "/tmp/out", NoPrune: true}
+	c2 := Config{NoPrune: true}
 
 	if !c2.NoPrune {
-
 		t.Error("NoPrune should be true")
-
 	}
-
 }
 
-
-
 func TestRelativePathLogic(t *testing.T) {
-
 	// Simulate the logic used in convertOpus
 
 	inputRoot := "/music/library"
 
 	inputFile := "/music/library/Artist/Album/Song.flac"
 
-	
-
 	rel, err := filepath.Rel(inputRoot, inputFile)
-
 	if err != nil {
-
 		t.Fatalf("Rel failed: %v", err)
-
 	}
-
-	
 
 	if rel != "Artist/Album/Song.flac" {
-
 		t.Errorf("Expected relative path 'Artist/Album/Song.flac', got '%s'", rel)
-
 	}
-
-	
 
 	outputDir := "/tmp/opus"
 
@@ -156,22 +134,14 @@ func TestRelativePathLogic(t *testing.T) {
 
 	finalPath = strings.TrimSuffix(finalPath, filepath.Ext(finalPath)) + ".opus"
 
-	
-
 	expected := "/tmp/opus/Artist/Album/Song.opus"
 
 	if finalPath != expected {
-
 		t.Errorf("Expected output path '%s', got '%s'", expected, finalPath)
-
 	}
-
 }
 
-
-
 func TestPrunePathLogic(t *testing.T) {
-
 	// Simulate the logic used in pruneOutput to find source FLAC
 
 	inputRoot := "/music/library"
@@ -180,25 +150,14 @@ func TestPrunePathLogic(t *testing.T) {
 
 	orphanOpus := "/tmp/opus/Artist/Album/Song.opus"
 
-
-
 	rel, err := filepath.Rel(outputRoot, orphanOpus)
-
 	if err != nil {
-
 		t.Fatalf("Rel failed: %v", err)
-
 	}
-
-
 
 	if rel != "Artist/Album/Song.opus" {
-
 		t.Errorf("Expected relative path 'Artist/Album/Song.opus', got '%s'", rel)
-
 	}
-
-
 
 	// Construct expected source path
 
@@ -206,16 +165,11 @@ func TestPrunePathLogic(t *testing.T) {
 
 	expectedFlac := filepath.Join(inputRoot, base+".flac")
 
-
-
 	expected := "/music/library/Artist/Album/Song.flac"
 
 	if expectedFlac != expected {
-
 		t.Errorf("Expected source FLAC path '%s', got '%s'", expected, expectedFlac)
-
 	}
-
 }
 
 func TestProcessMBIDs_CustomTags(t *testing.T) {
