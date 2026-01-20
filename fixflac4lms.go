@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/go-flac/go-flac"
@@ -228,7 +229,7 @@ func convertOpus(inputFile string, inputRoot string, config Config) error {
 
 	// Ensure output directory exists
 	outputDir := filepath.Dir(outputFile)
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
@@ -237,7 +238,7 @@ func convertOpus(inputFile string, inputRoot string, config Config) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if outStat, err := os.Stat(outputFile); err == nil {
 		if !inStat.ModTime().After(outStat.ModTime()) {
 			if config.Verbose {
@@ -254,7 +255,7 @@ func convertOpus(inputFile string, inputRoot string, config Config) error {
 
 	// Prepare opusenc command
 	cmd := exec.Command("opusenc", absInputFile, tempOutputFile)
-	
+
 	// Handle output
 	if config.Verbose {
 		cmd.Stdout = os.Stdout
@@ -289,10 +290,10 @@ func pruneOutput(inputRoot, outputRoot string, verbose bool) error {
 	// We need to walk the output tree in reverse order (contents before directories)
 	// to effectively remove empty directories. However, WalkDir doesn't support reverse.
 	// So we'll remove files first, then do a second pass for directories or handle dirs specially.
-	// Actually, standard WalkDir is fine, we just can't delete the *current* dir while walking it easily 
-	// unless we use filepath.Walk (which processes children). 
+	// Actually, standard WalkDir is fine, we just can't delete the *current* dir while walking it easily
+	// unless we use filepath.Walk (which processes children).
 	// A simpler approach for empty dirs: remove them if os.Remove succeeds (it fails if not empty).
-	
+
 	// Collect directories to try removing later (depth-first simulated by sorting length desc)
 	var dirsToRemove []string
 
@@ -325,8 +326,8 @@ func pruneOutput(inputRoot, outputRoot string, verbose bool) error {
 			// Construct expected source path
 			base := strings.TrimSuffix(rel, filepath.Ext(rel))
 			expectedFlac := filepath.Join(inputRoot, base+".flac")
-			
-			// Check existence (case-insensitive check would be better but expensive, 
+
+			// Check existence (case-insensitive check would be better but expensive,
 			// relying on standard stat for now as we mirrored it)
 			if _, err := os.Stat(expectedFlac); os.IsNotExist(err) {
 				if verbose {
@@ -337,7 +338,6 @@ func pruneOutput(inputRoot, outputRoot string, verbose bool) error {
 		}
 		return nil
 	})
-
 	if err != nil {
 		return err
 	}
@@ -435,17 +435,12 @@ func processMBIDs(filename string, f *flac.File) (bool, error) {
 
 	// Helper to check if a tag is in our target list
 	isTarget := func(t string) bool {
-		for _, target := range targetTags {
-			if t == target {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(targetTags, t)
 	}
 
 	// Map to store values for checking: tagKey -> []values
 	tagValues := make(map[string][]string)
-	
+
 	// Identify target tags and collect their values
 	for _, t := range targetTags {
 		tagValues[t] = []string{}
