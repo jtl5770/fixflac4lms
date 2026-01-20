@@ -38,7 +38,8 @@ automate fixing this:
 *   It checks for existing embedded cover art.
 *   If missing, it looks for a `cover.jpg` file in the same directory.
 *   If found, it embeds it into the FLAC file.
-*   [TODO] make the name for the external album art configurable
+*   You can customize the filename to look for (e.g., `folder.jpg`)
+    using the `--cover-name` flag.
 
 ### Convert to Opus
 The tool includes a bulk converter to creating a mirrored copy of your
@@ -109,6 +110,23 @@ directory) and ignores the fix flags.
 
 The tool will also scan for *other* multi-valued `MUSICBRAINZ_` tags (like
 `MUSICBRAINZ_RELEASEGROUPID`) and warn you if they exist, as they might
-also cause issues in LMS. These are not automatically modified. 
-[TODO] make it possible to give a list of additional tags to merge on the
-command line.
+also cause issues in LMS. These are not automatically modified.
+
+## Advanced Configuration
+
+### Custom Merge Tags
+You can override the default list of tags to merge by using the
+`--merge-tags` flag. Provide a comma-separated list of tag keys.
+
+```bash
+# Merge ARTIST and ALBUM tags instead of default MusicBrainz IDs
+./fixflac4lms -w --mb-ids --merge-tags "ARTIST,ALBUM" /path/to/music
+```
+
+### Custom Cover Name
+To use a different filename for cover art (default is `cover.jpg`):
+
+```bash
+# Look for 'folder.jpg' instead of 'cover.jpg'
+./fixflac4lms -w --embed-cover --cover-name "folder.jpg" /path/to/music
+```

@@ -24,6 +24,8 @@ type Config struct {
 	EmbedCover  bool
 	ConvertOpus string
 	NoPrune     bool
+	CoverName   string
+	MergeTags   []string
 }
 
 type VorbisComment struct {
@@ -115,12 +117,28 @@ func main() {
 	embedCoverPtr := flag.Bool("embed-cover", false, "Embed cover.jpg if missing")
 	convertOpusPtr := flag.String("convert-opus", "", "Convert to Opus in specified output directory")
 	noPrunePtr := flag.Bool("noprune", false, "Disable pruning of orphaned files in output directory (only with -convert-opus)")
+	coverNamePtr := flag.String("cover-name", "cover.jpg", "Filename for external cover art (default: cover.jpg)")
+	mergeTagsPtr := flag.String("merge-tags", "", "Comma-separated list of tags to merge (overrides defaults)")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
-		fmt.Println("Usage: fixflac4lms [-w] [-v] [--mb-ids] [--embed-cover] [-convert-opus <dir> [-noprune]] <path>")
+		fmt.Println("Usage: fixflac4lms [-w] [-v] [--mb-ids] [--embed-cover] [-convert-opus <dir> [-noprune]] [--cover-name <name>] [--merge-tags <tags>] <path>")
 		flag.PrintDefaults()
 		os.Exit(1)
+	}
+
+	var mergeTags []string
+	if *mergeTagsPtr != "" {
+		parts := strings.Split(*mergeTagsPtr, ",")
+		for _, part := range parts {
+			mergeTags = append(mergeTags, strings.TrimSpace(part))
+		}
+	} else {
+		mergeTags = []string{
+			"MUSICBRAINZ_ARTISTID",
+			"MUSICBRAINZ_ALBUMARTISTID",
+			"MUSICBRAINZ_RELEASE_ARTISTID",
+		}
 	}
 
 	config := Config{
@@ -130,6 +148,8 @@ func main() {
 		EmbedCover:  *embedCoverPtr,
 		ConvertOpus: *convertOpusPtr,
 		NoPrune:     *noPrunePtr,
+		CoverName:   *coverNamePtr,
+		MergeTags:   mergeTags,
 	}
 
 	// Check conflicts if converting
@@ -376,7 +396,7 @@ func fixFlac(filename string, config Config) error {
 	modified := false
 
 	if config.FixMBIDs {
-		m, err := processMBIDs(filename, f)
+		m, err := processMBIDs(filename, f, config)
 		if err != nil {
 			return err
 		}
@@ -386,7 +406,7 @@ func fixFlac(filename string, config Config) error {
 	}
 
 	if config.EmbedCover {
-		m, err := processCover(filename, f)
+		m, err := processCover(filename, f, config)
 		if err != nil {
 			return err
 		}
@@ -408,7 +428,7 @@ func fixFlac(filename string, config Config) error {
 	return f.Save(filename)
 }
 
-func processMBIDs(filename string, f *flac.File) (bool, error) {
+func processMBIDs(filename string, f *flac.File, config Config) (bool, error) {
 	var cmtBlock *flac.MetaDataBlock
 	for _, block := range f.Meta {
 		if block.Type == flac.VorbisComment {
@@ -427,11 +447,7 @@ func processMBIDs(filename string, f *flac.File) (bool, error) {
 	}
 
 	// Tags we want to check and potentially merge
-	targetTags := []string{
-		"MUSICBRAINZ_ARTISTID",
-		"MUSICBRAINZ_ALBUMARTISTID",
-		"MUSICBRAINZ_RELEASE_ARTISTID",
-	}
+	targetTags := config.MergeTags
 
 	// Helper to check if a tag is in our target list
 	isTarget := func(t string) bool {
@@ -504,7 +520,7 @@ func processMBIDs(filename string, f *flac.File) (bool, error) {
 	return modified, nil
 }
 
-func processCover(filename string, f *flac.File) (bool, error) {
+func processCover(filename string, f *flac.File, config Config) (bool, error) {
 	for _, block := range f.Meta {
 		if block.Type == flac.Picture {
 			// Already has a picture
@@ -514,36 +530,36 @@ func processCover(filename string, f *flac.File) (bool, error) {
 
 	// No picture found, look for cover.jpg
 	dir := filepath.Dir(filename)
-	coverPath := filepath.Join(dir, "cover.jpg")
+	coverPath := filepath.Join(dir, config.CoverName)
 
 	if _, err := os.Stat(coverPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Warning: %s: No embedded cover and no cover.jpg found\n", filename)
+		fmt.Fprintf(os.Stderr, "Warning: %s: No embedded cover and no %s found\n", filename, config.CoverName)
 		return false, nil
 	}
 
 	// Found cover.jpg, embed it
-	fmt.Printf("%s: Embedding cover.jpg\n", filename)
+	fmt.Printf("%s: Embedding %s\n", filename, config.CoverName)
 
 	file, err := os.Open(coverPath)
 	if err != nil {
-		return false, fmt.Errorf("failed to open cover.jpg: %w", err)
+		return false, fmt.Errorf("failed to open %s: %w", config.CoverName, err)
 	}
 	defer file.Close()
 
 	// Decode config to get dimensions
 	cfg, _, err := image.DecodeConfig(file)
 	if err != nil {
-		return false, fmt.Errorf("failed to decode cover.jpg config: %w", err)
+		return false, fmt.Errorf("failed to decode %s config: %w", config.CoverName, err)
 	}
 
 	// Reset file pointer to read data
 	if _, err := file.Seek(0, 0); err != nil {
-		return false, fmt.Errorf("failed to seek cover.jpg: %w", err)
+		return false, fmt.Errorf("failed to seek %s: %w", config.CoverName, err)
 	}
 
 	data, err := io.ReadAll(file)
 	if err != nil {
-		return false, fmt.Errorf("failed to read cover.jpg: %w", err)
+		return false, fmt.Errorf("failed to read %s: %w", config.CoverName, err)
 	}
 
 	pic := &Picture{

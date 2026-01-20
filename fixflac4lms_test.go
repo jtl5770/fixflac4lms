@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/go-flac/go-flac"
 )
 
 func TestParseVorbisComment(t *testing.T) {
@@ -214,4 +216,68 @@ func TestPrunePathLogic(t *testing.T) {
 
 	}
 
+}
+
+func TestProcessMBIDs_CustomTags(t *testing.T) {
+	// Setup Vorbis Comment with duplicate custom tags
+	vc := &VorbisComment{
+		Vendor: "vendor",
+		Comments: []string{
+			"CUSTOM_TAG=Value1",
+			"CUSTOM_TAG=Value2",
+			"OTHER_TAG=Value3",
+			"OTHER_TAG=Value4",
+		},
+	}
+
+	// Create FLAC file structure
+	block := &flac.MetaDataBlock{
+		Type: flac.VorbisComment,
+		Data: vc.Marshal(),
+	}
+	f := &flac.File{
+		Meta: []*flac.MetaDataBlock{block},
+	}
+
+	config := Config{
+		FixMBIDs:  true,
+		MergeTags: []string{"CUSTOM_TAG"},
+	}
+
+	modified, err := processMBIDs("test.flac", f, config)
+	if err != nil {
+		t.Fatalf("processMBIDs failed: %v", err)
+	}
+
+	if !modified {
+		t.Error("Expected modified to be true")
+	}
+
+	// Parse back to check
+	newVC, _ := ParseVorbisComment(f.Meta[0].Data)
+
+	// Check CUSTOM_TAG is merged
+	customCount := 0
+	for _, c := range newVC.Comments {
+		if strings.HasPrefix(c, "CUSTOM_TAG=") {
+			customCount++
+			if c != "CUSTOM_TAG=Value1+Value2" {
+				t.Errorf("Expected merged value 'Value1+Value2', got '%s'", c)
+			}
+		}
+	}
+	if customCount != 1 {
+		t.Errorf("Expected 1 CUSTOM_TAG, got %d", customCount)
+	}
+
+	// Check OTHER_TAG is NOT merged (default behavior for non-target tags)
+	otherCount := 0
+	for _, c := range newVC.Comments {
+		if strings.HasPrefix(c, "OTHER_TAG=") {
+			otherCount++
+		}
+	}
+	if otherCount != 2 {
+		t.Errorf("Expected 2 OTHER_TAGs, got %d", otherCount)
+	}
 }
