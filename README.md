@@ -118,7 +118,7 @@ directory) and ignores the fix flags.
 ./fixflac4lms --convert-opus /path/to/output_library /path/to/flac_library
 
 # Convert without pruning orphans (faster/safer if you know output is clean)
-./fixflac4lms --convert-opus /path/to/output_library --noprune /path/to/flac_library
+./fixflac4lms --convert-opus /path/to/output_library --no-prune /path/to/flac_library
 ```
 
 ## Warnings

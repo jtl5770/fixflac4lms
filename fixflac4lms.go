@@ -150,15 +150,21 @@ func main() {
 	fixMBIDsPtr := flag.Bool("mb-ids", false, "Fix MusicBrainz IDs (merge multiple IDs)")
 	embedCoverPtr := flag.Bool("embed-cover", false, "Embed cover.jpg if missing")
 	convertOpusPtr := flag.String("convert-opus", "", "Convert to Opus in specified output directory")
-	noPrunePtr := flag.Bool("noprune", false, "Disable pruning of orphaned files in output directory (only with -convert-opus)")
+	noPrunePtr := flag.Bool("no-prune", false, "Disable pruning of orphaned files in output directory (only with --convert-opus)")
 	coverNamePtr := flag.String("cover-name", "cover.jpg", "Filename for external cover art (default: cover.jpg)")
 	mergeTagsPtr := flag.String("merge-tags", "", "Comma-separated list of tags to merge (overrides defaults)")
 	noProgressPtr := flag.Bool("no-progress", false, "Disable progress bar")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
-		fmt.Println("Usage: fixflac4lms [-w] [-v] [--no-progress] [--mb-ids] [--embed-cover] [--convert-opus <dir> [--noprune]] [--cover-name <name>] [--merge-tags <tags>] <path>")
-		flag.PrintDefaults()
+		fmt.Println("Usage: fixflac4lms [-w] [-v] [--no-progress] [--mb-ids] [--embed-cover] [--convert-opus <dir> [--no-prune]] [--cover-name <name>] [--merge-tags <tags>] <path>")
+		flag.VisitAll(func(f *flag.Flag) {
+			prefix := "-"
+			if len(f.Name) > 1 {
+				prefix = "--"
+			}
+			fmt.Printf("  %s%s\n\t%s (default %q)\n", prefix, f.Name, f.Usage, f.DefValue)
+		})
 		os.Exit(1)
 	}
 
@@ -205,7 +211,7 @@ func main() {
 			os.Exit(1)
 		}
 	} else if config.NoPrune {
-		fmt.Fprintln(os.Stderr, "Error: --noprune is only valid with --convert-opus")
+		fmt.Fprintln(os.Stderr, "Error: --no-prune is only valid with --convert-opus")
 		os.Exit(1)
 	}
 
