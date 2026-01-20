@@ -937,7 +937,8 @@ func (m model) View() string {
 		return "\nCounting files...\n"
 	}
 
-	s := "\n" + m.progress.View() + "\n\n"
+	s := fmt.Sprintf("\nFound %d FLAC files.\n", m.total)
+	s += m.progress.View() + "\n\n"
 	if m.status != "" {
 		s += lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Render(m.status) + "\n"
 	} else {
