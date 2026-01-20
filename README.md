@@ -23,6 +23,9 @@ Many older rips store cover art as a `cover.jpg` file in the album folder rather
 ### Convert to Opus
 The tool includes a bulk converter to creating a mirrored copy of your FLAC library in **Opus** format.
 *   **Mirrors Structure:** It replicates your folder structure (Artist/Album/...) in the output directory.
+*   **Smart Sync:** It checks timestamps and only converts files if the source is newer than the destination. It skips up-to-date files.
+*   **Atomic Writes:** It converts to a temporary file first and renames only on success, ensuring no corrupt files exist if interrupted.
+*   **Pruning:** It automatically removes orphaned Opus files (tracks deleted from source) and empty directories from the output.
 *   **Copies Metadata:** It uses `opusenc` to ensure all tags and cover art are correctly copied to the new files.
 *   **Conflict Free:** This mode is exclusive and cannot be combined with the fixing modes.
 
@@ -69,6 +72,9 @@ This mode does **not** require the `-w` flag (it always writes to the output dir
 # Convert entire library to Opus
 # Output structure will match input structure
 ./fixflac4lms -convert-opus /path/to/output_library /path/to/flac_library
+
+# Convert without pruning orphans (faster/safer if you know output is clean)
+./fixflac4lms -convert-opus /path/to/output_library -noprune /path/to/flac_library
 ```
 
 ## Warnings

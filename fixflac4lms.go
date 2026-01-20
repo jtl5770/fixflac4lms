@@ -22,6 +22,7 @@ type Config struct {
 	FixMBIDs    bool
 	EmbedCover  bool
 	ConvertOpus string
+	NoPrune     bool
 }
 
 type VorbisComment struct {
@@ -112,10 +113,11 @@ func main() {
 	fixMBIDsPtr := flag.Bool("mb-ids", false, "Fix MusicBrainz IDs (merge multiple IDs)")
 	embedCoverPtr := flag.Bool("embed-cover", false, "Embed cover.jpg if missing")
 	convertOpusPtr := flag.String("convert-opus", "", "Convert to Opus in specified output directory")
+	noPrunePtr := flag.Bool("noprune", false, "Disable pruning of orphaned files in output directory (only with -convert-opus)")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
-		fmt.Println("Usage: fixflac4lms [-w] [-v] [--mb-ids] [--embed-cover] [-convert-opus <dir>] <path>")
+		fmt.Println("Usage: fixflac4lms [-w] [-v] [--mb-ids] [--embed-cover] [-convert-opus <dir> [-noprune]] <path>")
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
@@ -126,6 +128,7 @@ func main() {
 		FixMBIDs:    *fixMBIDsPtr,
 		EmbedCover:  *embedCoverPtr,
 		ConvertOpus: *convertOpusPtr,
+		NoPrune:     *noPrunePtr,
 	}
 
 	// Check conflicts if converting
@@ -139,6 +142,9 @@ func main() {
 			fmt.Fprintln(os.Stderr, "Error: opusenc not found in PATH")
 			os.Exit(1)
 		}
+	} else if config.NoPrune {
+		fmt.Fprintln(os.Stderr, "Error: -noprune is only valid with -convert-opus")
+		os.Exit(1)
 	}
 
 	path := flag.Arg(0)
@@ -176,6 +182,13 @@ func main() {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error walking directory: %v\n", err)
 			os.Exit(1)
+		}
+
+		// Prune output directory if converting and not disabled
+		if config.ConvertOpus != "" && !config.NoPrune {
+			if err := pruneOutput(absInputRoot, config.ConvertOpus, config.Verbose); err != nil {
+				fmt.Fprintf(os.Stderr, "Error pruning output: %v\n", err)
+			}
 		}
 	} else {
 		if config.ConvertOpus != "" {
@@ -219,30 +232,132 @@ func convertOpus(inputFile string, inputRoot string, config Config) error {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	if config.Verbose {
-		fmt.Printf("Converting %s -> %s\n", inputFile, outputFile)
+	// Check if up to date
+	inStat, err := os.Stat(absInputFile)
+	if err != nil {
+		return err
+	}
+	
+	if outStat, err := os.Stat(outputFile); err == nil {
+		if !inStat.ModTime().After(outStat.ModTime()) {
+			if config.Verbose {
+				fmt.Printf("Skipping (up to date): %s\n", relPath)
+			}
+			return nil
+		}
 	}
 
+	fmt.Printf("Converting: %s\n", relPath)
+
+	// Atomic write: convert to .tmp first
+	tempOutputFile := outputFile + ".tmp"
+
 	// Prepare opusenc command
-	// opusenc [options] input_file output_file
-	// We rely on opusenc's default behavior to copy metadata and pictures
-	cmd := exec.Command("opusenc", absInputFile, outputFile)
+	cmd := exec.Command("opusenc", absInputFile, tempOutputFile)
 	
+	// Handle output
 	if config.Verbose {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	} else {
-		// Silent unless error
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("opusenc failed: %v, stderr: %s", err, stderr.String())
 		}
+		// If successful, rename
+		if err := os.Rename(tempOutputFile, outputFile); err != nil {
+			return fmt.Errorf("failed to rename temp file: %w", err)
+		}
 		return nil
 	}
 
 	if err := cmd.Run(); err != nil {
+		// Clean up temp file on failure
+		os.Remove(tempOutputFile)
 		return fmt.Errorf("opusenc failed: %w", err)
+	}
+
+	if err := os.Rename(tempOutputFile, outputFile); err != nil {
+		return fmt.Errorf("failed to rename temp file: %w", err)
+	}
+
+	return nil
+}
+
+func pruneOutput(inputRoot, outputRoot string, verbose bool) error {
+	// We need to walk the output tree in reverse order (contents before directories)
+	// to effectively remove empty directories. However, WalkDir doesn't support reverse.
+	// So we'll remove files first, then do a second pass for directories or handle dirs specially.
+	// Actually, standard WalkDir is fine, we just can't delete the *current* dir while walking it easily 
+	// unless we use filepath.Walk (which processes children). 
+	// A simpler approach for empty dirs: remove them if os.Remove succeeds (it fails if not empty).
+	
+	// Collect directories to try removing later (depth-first simulated by sorting length desc)
+	var dirsToRemove []string
+
+	err := filepath.WalkDir(outputRoot, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() {
+			if path != outputRoot {
+				dirsToRemove = append(dirsToRemove, path)
+			}
+			return nil
+		}
+
+		// Clean up stale temp files
+		if strings.HasSuffix(path, ".opus.tmp") {
+			if verbose {
+				fmt.Printf("Removing stale temp file: %s\n", path)
+			}
+			return os.Remove(path)
+		}
+
+		// Check for orphans
+		if strings.EqualFold(filepath.Ext(path), ".opus") {
+			rel, err := filepath.Rel(outputRoot, path)
+			if err != nil {
+				return err
+			}
+			// Construct expected source path
+			base := strings.TrimSuffix(rel, filepath.Ext(rel))
+			expectedFlac := filepath.Join(inputRoot, base+".flac")
+			
+			// Check existence (case-insensitive check would be better but expensive, 
+			// relying on standard stat for now as we mirrored it)
+			if _, err := os.Stat(expectedFlac); os.IsNotExist(err) {
+				if verbose {
+					fmt.Printf("Removing orphan: %s\n", path)
+				}
+				return os.Remove(path)
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	// Remove empty directories
+	// Sort by length descending to ensure subdirs are removed before parents
+	// This is a naive but effective way to handle depth-first deletion
+	// (Longer paths are deeper)
+	for i := 0; i < len(dirsToRemove); i++ {
+		for j := i + 1; j < len(dirsToRemove); j++ {
+			if len(dirsToRemove[i]) < len(dirsToRemove[j]) {
+				dirsToRemove[i], dirsToRemove[j] = dirsToRemove[j], dirsToRemove[i]
+			}
+		}
+	}
+
+	for _, dir := range dirsToRemove {
+		// Attempt to remove. Will fail if not empty (which is what we want).
+		// We ignore error because "not empty" is a valid state.
+		os.Remove(dir)
 	}
 
 	return nil
