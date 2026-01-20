@@ -370,6 +370,10 @@ func pruneOutput(inputRoot, outputRoot string, _ bool, config Config) error {
 		}
 
 		if d.IsDir() {
+			// Skip hidden directories (like .stfolder)
+			if strings.HasPrefix(d.Name(), ".") && path != outputRoot {
+				return filepath.SkipDir
+			}
 			if path != outputRoot {
 				dirsToRemove = append(dirsToRemove, path)
 			}

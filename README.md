@@ -51,7 +51,9 @@ FLAC library in **Opus** format.
 *   **Atomic Writes:** It converts to a temporary file first and renames
     only on success, ensuring no corrupt files exist if interrupted.
 *   **Pruning:** It automatically removes orphaned Opus files (tracks
-    deleted from source) and empty directories from the output.
+    deleted from source) and empty directories from the output. It
+    intelligently skips hidden directories (like `.stfolder`) to
+    prevent accidental deletion of sync configuration data.
 *   Copies Metadata. It uses `opusenc` to ensure all tags and cover art
     are correctly copied to the new files.
 *   This mode is exclusive and cannot be combined with the fixing modes.
