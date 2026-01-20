@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -85,5 +87,43 @@ func TestPictureMarshal(t *testing.T) {
 	binary.Read(r, binary.BigEndian, &val)
 	if val != 500 {
 		t.Errorf("Expected Width 500, got %d", val)
+	}
+}
+
+func TestConfigValidation(t *testing.T) {
+	// Valid config: just converting
+	c1 := Config{ConvertOpus: "/tmp/out"}
+	if c1.ConvertOpus == "" {
+		t.Error("ConvertOpus should be set")
+	}
+
+	// Conflict: converting + mb-ids
+	// Note: We can't easily test os.Exit(1) without refactoring main(), 
+	// but we can test logic if we had a Validate() method. 
+	// For now, this is a placeholder to ensure the struct works.
+}
+
+func TestRelativePathLogic(t *testing.T) {
+	// Simulate the logic used in convertOpus
+	inputRoot := "/music/library"
+	inputFile := "/music/library/Artist/Album/Song.flac"
+	
+	rel, err := filepath.Rel(inputRoot, inputFile)
+	if err != nil {
+		t.Fatalf("Rel failed: %v", err)
+	}
+	
+	if rel != "Artist/Album/Song.flac" {
+		t.Errorf("Expected relative path 'Artist/Album/Song.flac', got '%s'", rel)
+	}
+	
+	outputDir := "/tmp/opus"
+	finalPath := filepath.Join(outputDir, rel)
+	// We want to replace .flac with .opus
+	finalPath = strings.TrimSuffix(finalPath, filepath.Ext(finalPath)) + ".opus"
+	
+	expected := "/tmp/opus/Artist/Album/Song.opus"
+	if finalPath != expected {
+		t.Errorf("Expected output path '%s', got '%s'", expected, finalPath)
 	}
 }

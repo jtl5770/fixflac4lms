@@ -9,6 +9,7 @@ import (
 	_ "image/jpeg" // Register JPEG decoder
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -16,10 +17,11 @@ import (
 )
 
 type Config struct {
-	Write      bool
-	Verbose    bool
-	FixMBIDs   bool
-	EmbedCover bool
+	Write       bool
+	Verbose     bool
+	FixMBIDs    bool
+	EmbedCover  bool
+	ConvertOpus string
 }
 
 type VorbisComment struct {
@@ -109,19 +111,34 @@ func main() {
 	verbosePtr := flag.Bool("v", false, "Verbose output (show processed files)")
 	fixMBIDsPtr := flag.Bool("mb-ids", false, "Fix MusicBrainz IDs (merge multiple IDs)")
 	embedCoverPtr := flag.Bool("embed-cover", false, "Embed cover.jpg if missing")
+	convertOpusPtr := flag.String("convert-opus", "", "Convert to Opus in specified output directory")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
-		fmt.Println("Usage: fixflac4lms [-w] [-v] [--mb-ids] [--embed-cover] <path>")
+		fmt.Println("Usage: fixflac4lms [-w] [-v] [--mb-ids] [--embed-cover] [-convert-opus <dir>] <path>")
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
 
 	config := Config{
-		Write:      *writePtr,
-		Verbose:    *verbosePtr,
-		FixMBIDs:   *fixMBIDsPtr,
-		EmbedCover: *embedCoverPtr,
+		Write:       *writePtr,
+		Verbose:     *verbosePtr,
+		FixMBIDs:    *fixMBIDsPtr,
+		EmbedCover:  *embedCoverPtr,
+		ConvertOpus: *convertOpusPtr,
+	}
+
+	// Check conflicts if converting
+	if config.ConvertOpus != "" {
+		if config.FixMBIDs || config.EmbedCover {
+			fmt.Fprintln(os.Stderr, "Error: --convert-opus cannot be used with --mb-ids or --embed-cover")
+			os.Exit(1)
+		}
+		// Verify opusenc exists
+		if _, err := exec.LookPath("opusenc"); err != nil {
+			fmt.Fprintln(os.Stderr, "Error: opusenc not found in PATH")
+			os.Exit(1)
+		}
 	}
 
 	path := flag.Arg(0)
@@ -132,13 +149,26 @@ func main() {
 	}
 
 	if info.IsDir() {
-		err = filepath.WalkDir(path, func(path string, d os.DirEntry, err error) error {
+		// Calculate absolute path for input root to handle relative paths correctly
+		absInputRoot, err := filepath.Abs(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error getting absolute path for %s: %v\n", path, err)
+			os.Exit(1)
+		}
+
+		err = filepath.WalkDir(path, func(filePath string, d os.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
-			if !d.IsDir() && strings.EqualFold(filepath.Ext(path), ".flac") {
-				if err := fixFlac(path, config); err != nil {
-					return fmt.Errorf("processing %s: %w", path, err)
+			if !d.IsDir() && strings.EqualFold(filepath.Ext(filePath), ".flac") {
+				if config.ConvertOpus != "" {
+					if err := convertOpus(filePath, absInputRoot, config); err != nil {
+						return fmt.Errorf("converting %s: %w", filePath, err)
+					}
+				} else {
+					if err := fixFlac(filePath, config); err != nil {
+						return fmt.Errorf("processing %s: %w", filePath, err)
+					}
 				}
 			}
 			return nil
@@ -148,11 +178,74 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-		if err := fixFlac(path, config); err != nil {
-			fmt.Fprintf(os.Stderr, "Error processing %s: %v\n", path, err)
-			os.Exit(1)
+		if config.ConvertOpus != "" {
+			// For single file, input root is the directory of the file
+			absInputRoot := filepath.Dir(path)
+			if absPath, err := filepath.Abs(absInputRoot); err == nil {
+				absInputRoot = absPath
+			}
+			if err := convertOpus(path, absInputRoot, config); err != nil {
+				fmt.Fprintf(os.Stderr, "Error converting %s: %v\n", path, err)
+				os.Exit(1)
+			}
+		} else {
+			if err := fixFlac(path, config); err != nil {
+				fmt.Fprintf(os.Stderr, "Error processing %s: %v\n", path, err)
+				os.Exit(1)
+			}
 		}
 	}
+}
+
+func convertOpus(inputFile string, inputRoot string, config Config) error {
+	absInputFile, err := filepath.Abs(inputFile)
+	if err != nil {
+		return err
+	}
+
+	// Calculate relative path from input root
+	relPath, err := filepath.Rel(inputRoot, absInputFile)
+	if err != nil {
+		return fmt.Errorf("failed to get relative path: %w", err)
+	}
+
+	// Determine output filename
+	outputFile := filepath.Join(config.ConvertOpus, relPath)
+	outputFile = strings.TrimSuffix(outputFile, filepath.Ext(outputFile)) + ".opus"
+
+	// Ensure output directory exists
+	outputDir := filepath.Dir(outputFile)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	if config.Verbose {
+		fmt.Printf("Converting %s -> %s\n", inputFile, outputFile)
+	}
+
+	// Prepare opusenc command
+	// opusenc [options] input_file output_file
+	// We rely on opusenc's default behavior to copy metadata and pictures
+	cmd := exec.Command("opusenc", absInputFile, outputFile)
+	
+	if config.Verbose {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	} else {
+		// Silent unless error
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("opusenc failed: %v, stderr: %s", err, stderr.String())
+		}
+		return nil
+	}
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("opusenc failed: %w", err)
+	}
+
+	return nil
 }
 
 func fixFlac(filename string, config Config) error {

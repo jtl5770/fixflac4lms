@@ -1,46 +1,35 @@
 # fixflac4lms
 
-**fixflac4lms** is a specialized tool designed to correct specific FLAC
-metadata issues that can cause problems with [Lyrion Music Server
-(LMS)](https://lyrion.org/).
+**fixflac4lms** is a specialized tool designed to correct specific FLAC metadata issues that can cause problems with [Lyrion Music Server (LMS)](https://lyrion.org/). It also includes utilities for embedding cover art and converting libraries to Opus.
 
-## The Problem
+## The Main Problem: Multi-Value Tags in LMS
 
-LMS can sometimes struggle with **multi-valued Vorbis comments**,
-specifically MusicBrainz IDs. 
+LMS can sometimes struggle with **multi-valued Vorbis comments**, specifically MusicBrainz IDs. If a FLAC file contains multiple `MUSICBRAINZ_ARTISTID` tags (common when multiple artists are involved), LMS may incorrectly associate the *first* ID found with the *entire* Artist string (e.g., "Artist A, Artist B"). This causes "Artist A" to be incorrectly displayed as "Artist A, Artist B" on other albums that only feature Artist A.
 
-The following is my current understanding of the problem, please add
-an issue if it is more complex in reality: If a FLAC file contains
-multiple e.g. `MUSICBRAINZ_ALBUMARTISTID` tags (common when multiple
-artists are involved), LMS may incorrectly associate the *first* ID
-found with the *entire* Artist string (e.g., "Artist A, Artist B"). This
-causes "Artist A" to be incorrectly displayed as "Artist A, Artist B"
-on other albums that only feature Artist A. Regardless of me getting
-all the details right here, the implemented solution fixed my problems
-with my music library on LMS.
+### The Solution
 
-Another feature implemented here is the ability to automatically embed
-"cover.jpg" album art from the same folder into the tracks themselves
-(if no prior picture data is present). This may not be of relevant
-general use, but I made the unfortunate decision years ago not to
-embed the album art into the flac files. This feature helped me to
-correct them in one go.
+`fixflac4lms` scans your FLAC library and performs a targeted fix:
 
-## The Solution
+*   **Merge MusicBrainz IDs:** It detects multiple instances of specific ID tags (`MUSICBRAINZ_ARTISTID`, `MUSICBRAINZ_ALBUMARTISTID`, and the experimentally verified `MUSICBRAINZ_RELEASE_ARTISTID`) and merges them into a single tag with values separated by `+`. This prevents the LMS bug while preserving the data integrity (LMS sees the composite ID as a unique entity).
 
-`fixflac4lms` scans your FLAC library and performs two main fixes:
+## Additional Features
 
-1.  **Merge MusicBrainz IDs:** It detects multiple instances of specific
-    ID tags (`MUSICBRAINZ_ARTISTID`, `MUSICBRAINZ_ALBUMARTISTID`, and the
-    experimentally verified `MUSICBRAINZ_RELEASE_ARTISTID`) and merges
-    them into a single tag with values separated by `+`. This prevents
-    the LMS bug while preserving the data.
-2.  **Embed Cover Art:** It checks for embedded cover art. If missing, it
-    looks for a `cover.jpg` file in the same directory and embeds it.
+### Embed Cover Art
+Many older rips store cover art as a `cover.jpg` file in the album folder rather than embedding it in the FLAC tags. `fixflac4lms` can automate fixing this:
+*   It checks for existing embedded cover art.
+*   If missing, it looks for a `cover.jpg` file in the same directory.
+*   If found, it embeds it into the FLAC file.
+
+### Convert to Opus
+The tool includes a bulk converter to creating a mirrored copy of your FLAC library in **Opus** format.
+*   **Mirrors Structure:** It replicates your folder structure (Artist/Album/...) in the output directory.
+*   **Copies Metadata:** It uses `opusenc` to ensure all tags and cover art are correctly copied to the new files.
+*   **Conflict Free:** This mode is exclusive and cannot be combined with the fixing modes.
 
 ## Installation
 
 Requires [Go](https://go.dev/).
+For Opus conversion, you must have `opusenc` installed and in your system PATH.
 
 ```bash
 go build fixflac4lms.go
@@ -48,39 +37,40 @@ go build fixflac4lms.go
 
 ## Usage
 
-By default, the tool runs in **dry-run** mode. It will tell you what needs
-to be changed but will not modify any files.
+### 1. Fix Metadata (LMS Compatibility)
+
+By default, the tool runs in **dry-run** mode.
 
 ```bash
-# Analyze a directory (Dry-Run)
-./fixflac4lms /path/to/music
+# Analyze a directory (Dry-Run) - Reports what WOULD be fixed
+./fixflac4lms --mb-ids /path/to/music
 
-# Analyze with verbose output (shows all files checked)
-./fixflac4lms -v /path/to/music
+# Apply fixes (actually modify files)
+./fixflac4lms -w --mb-ids /path/to/music
 ```
 
-### Applying Fixes
-
-To actually modify files, you must use the `-w` (write) flag along with
-the specific feature flags you want to enable.
+### 2. Embed Cover Art
 
 ```bash
-# Fix MusicBrainz IDs (Merge multiple values)
-./fixflac4lms -w --mb-ids /path/to/music
+# Check for missing covers (Dry-Run)
+./fixflac4lms --embed-cover /path/to/music
 
 # Embed 'cover.jpg' where missing
 ./fixflac4lms -w --embed-cover /path/to/music
+```
 
-# Do everything
-./fixflac4lms -w --mb-ids --embed-cover /path/to/music
+**Note:** You can combine flags: `./fixflac4lms -w --mb-ids --embed-cover /path/to/music`
+
+### 3. Convert to Opus
+
+This mode does **not** require the `-w` flag (it always writes to the output directory) and ignores the fix flags.
+
+```bash
+# Convert entire library to Opus
+# Output structure will match input structure
+./fixflac4lms -convert-opus /path/to/output_library /path/to/flac_library
 ```
 
 ## Warnings
 
-The tool will also scan for *other* multi-valued `MUSICBRAINZ_` tags (like
-`MUSICBRAINZ_RELEASEGROUPID`) and warn you if they exist, as they might
-also cause issues in LMS. These are not automatically modified.
-
-## Acknowledgment
-
-This program has been written with the extensive support of gemini-cli.
+The tool will also scan for *other* multi-valued `MUSICBRAINZ_` tags (like `MUSICBRAINZ_RELEASEGROUPID`) and warn you if they exist, as they might also cause issues in LMS. These are not automatically modified.
