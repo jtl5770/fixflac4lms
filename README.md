@@ -5,6 +5,8 @@ metadata issues that can cause problems with [Lyrion Music Server
 (LMS)](https://lyrion.org/). It also includes utilities for embedding cover art and
 converting libraries to Opus.
 
+This tool has been written with the extensive usage of gemini-cli.
+
 ## The Main Problem: Multi-Value Tags in LMS
 
 LMS can sometimes struggle with **multi-valued Vorbis comments**,
