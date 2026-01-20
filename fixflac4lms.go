@@ -157,7 +157,7 @@ func main() {
 	flag.Parse()
 
 	if flag.NArg() < 1 {
-		fmt.Println("Usage: fixflac4lms [-w] [-v] [--progress] [--mb-ids] [--embed-cover] [-convert-opus <dir> [-noprune]] [--cover-name <name>] [--merge-tags <tags>] <path>")
+		fmt.Println("Usage: fixflac4lms [-w] [-v] [--progress] [--mb-ids] [--embed-cover] [--convert-opus <dir> [--noprune]] [--cover-name <name>] [--merge-tags <tags>] <path>")
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
@@ -205,7 +205,7 @@ func main() {
 			os.Exit(1)
 		}
 	} else if config.NoPrune {
-		fmt.Fprintln(os.Stderr, "Error: -noprune is only valid with -convert-opus")
+		fmt.Fprintln(os.Stderr, "Error: --noprune is only valid with --convert-opus")
 		os.Exit(1)
 	}
 

@@ -39,7 +39,7 @@ automate fixing this:
 *   If missing, it looks for a `cover.jpg` file in the same directory.
 *   If found, it embeds it into the FLAC file.
 *   You can customize the filename to look for (e.g., `folder.jpg`)
-    using the `-cover-name` flag.
+    using the `--cover-name` flag.
 
 ### Convert to Opus
 The tool includes a bulk converter to creating a mirrored copy of your
@@ -60,12 +60,12 @@ FLAC library in **Opus** format.
 
 ### Progress Bar
 For a more visual experience, especially with large libraries, you can
-use the `-progress` flag. This displays a graphical progress bar and
+use the `--progress` flag. This displays a graphical progress bar and
 current status updates instead of a scrolling log. This is mutually
 exclusive with the `-v` (verbose) flag.
 
 ```bash
-./fixflac4lms -progress -mb-ids -w /path/to/music
+./fixflac4lms --progress --mb-ids -w /path/to/music
 ```
 
 ## Installation
@@ -85,23 +85,23 @@ By default, the tool runs in **dry-run** mode.
 
 ```bash
 # Analyze a directory (Dry-Run) - Reports what WOULD be fixed
-./fixflac4lms -mb-ids /path/to/music
+./fixflac4lms --mb-ids /path/to/music
 
 # Apply fixes (actually modify files)
-./fixflac4lms -w -mb-ids /path/to/music
+./fixflac4lms -w --mb-ids /path/to/music
 ```
 
 ### 2. Embed Cover Art
 
 ```bash
 # Check for missing covers (Dry-Run)
-./fixflac4lms -embed-cover /path/to/music
+./fixflac4lms --embed-cover /path/to/music
 
 # Embed 'cover.jpg' where missing
-./fixflac4lms -w -embed-cover /path/to/music
+./fixflac4lms -w --embed-cover /path/to/music
 ```
 
-**Note:** You can combine flags: `./fixflac4lms -w -mb-ids -embed-cover
+**Note:** You can combine flags: `./fixflac4lms -w --mb-ids --embed-cover
 /path/to/music`
 
 ### 3. Convert to Opus
@@ -112,10 +112,10 @@ directory) and ignores the fix flags.
 ```bash
 # Convert entire library to Opus
 # Output structure will match input structure
-./fixflac4lms -convert-opus /path/to/output_library /path/to/flac_library
+./fixflac4lms --convert-opus /path/to/output_library /path/to/flac_library
 
 # Convert without pruning orphans (faster/safer if you know output is clean)
-./fixflac4lms -convert-opus /path/to/output_library -noprune /path/to/flac_library
+./fixflac4lms --convert-opus /path/to/output_library --noprune /path/to/flac_library
 ```
 
 ## Warnings
@@ -128,11 +128,11 @@ also cause issues in LMS. These are not automatically modified.
 
 ### Custom Merge Tags
 You can override the default list of tags to merge by using the
-`-merge-tags` flag. Provide a comma-separated list of tag keys.
+`--merge-tags` flag. Provide a comma-separated list of tag keys.
 
 ```bash
 # Merge ARTIST and ALBUM tags instead of default MusicBrainz IDs
-./fixflac4lms -w -mb-ids -merge-tags "ARTIST,ALBUM" /path/to/music
+./fixflac4lms -w --mb-ids --merge-tags "ARTIST,ALBUM" /path/to/music
 ```
 
 ### Custom Cover Name
@@ -140,5 +140,5 @@ To use a different filename for cover art (default is `cover.jpg`):
 
 ```bash
 # Look for 'folder.jpg' instead of 'cover.jpg'
-./fixflac4lms -w -embed-cover -cover-name "folder.jpg" /path/to/music
+./fixflac4lms -w --embed-cover --cover-name "folder.jpg" /path/to/music
 ```
