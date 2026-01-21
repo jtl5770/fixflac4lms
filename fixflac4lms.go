@@ -262,7 +262,7 @@ func main() {
 
 		// Prune output directory if converting and not disabled
 		if config.ConvertOpus != "" && !config.NoPrune {
-			if err := pruneOutput(absInputRoot, config.ConvertOpus, config.Verbose, config); err != nil {
+			if err := pruneOutput(absInputRoot, config); err != nil {
 				fmt.Fprintf(os.Stderr, "Error pruning output: %v\n", err)
 			}
 		}
@@ -359,7 +359,7 @@ func convertOpus(inputFile string, inputRoot string, config Config) (bool, error
 	return true, nil
 }
 
-func pruneOutput(inputRoot, outputRoot string, _ bool, config Config) error {
+func pruneOutput(inputRoot string, config Config) error {
 	// We need to walk the output tree in reverse order (contents before directories)
 	// to effectively remove empty directories. However, WalkDir doesn't support reverse.
 	// So we'll remove files first, then do a second pass for directories or handle dirs specially.
@@ -369,6 +369,8 @@ func pruneOutput(inputRoot, outputRoot string, _ bool, config Config) error {
 
 	// Collect directories to try removing later (depth-first simulated by sorting length desc)
 	var dirsToRemove []string
+
+	outputRoot := config.ConvertOpus
 
 	err := filepath.WalkDir(outputRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -663,9 +665,9 @@ func runWithProgress(path string, info os.FileInfo, config Config) error {
 	// Print Summary
 	if finalM, ok := finalModel.(model); ok && finalM.total > 0 {
 		if finalM.interrupted {
-			fmt.Println("\nProcessing Interrupted!")
+			fmt.Println("Processing Interrupted!")
 		} else {
-			fmt.Println("\nProcessing Complete.")
+			fmt.Println("Processing Complete.")
 		}
 		fmt.Printf("Files Processed: %d / %d\n", finalM.processed, finalM.total)
 
@@ -762,7 +764,7 @@ func processFiles(path string, info os.FileInfo, config Config, msgChan chan tea
 		}
 
 		if config.ConvertOpus != "" && !config.NoPrune {
-			if err := pruneOutput(absInputRoot, config.ConvertOpus, false, config); err != nil {
+			if err := pruneOutput(absInputRoot, config); err != nil {
 				config.Log(LogWarn, "Error pruning output: %v\n", err)
 			}
 		}
@@ -945,11 +947,11 @@ func (m model) View() string {
 	}
 
 	if m.state == stateCounting {
-		return "\nCounting files...\n"
+		return "Counting files...\n"
 	}
 
-	s := fmt.Sprintf("\nFound %d FLAC files.\n", m.total)
-	s += m.progress.View() + "\n\n"
+	s := fmt.Sprintf("Found %d FLAC files.\n", m.total)
+	s += m.progress.View() + "\n"
 	if m.status != "" {
 		s += lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Render(m.status) + "\n"
 	} else {
