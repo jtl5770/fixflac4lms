@@ -175,8 +175,8 @@ func main() {
 
 	var mergeTags []string
 	if *mergeTagsPtr != "" {
-		parts := strings.Split(*mergeTagsPtr, ",")
-		for _, part := range parts {
+		parts := strings.SplitSeq(*mergeTagsPtr, ",")
+		for part := range parts {
 			mergeTags = append(mergeTags, strings.TrimSpace(part))
 		}
 	} else {
@@ -438,14 +438,49 @@ func pruneOutput(inputRoot string, config Config) error {
 	return nil
 }
 
+func processPermissions(filename string, config Config) (bool, error) {
+	info, err := os.Stat(filename)
+	if err != nil {
+		return false, err
+	}
+	mode := info.Mode()
+
+	// Target permission: rw-r--r-- (0644)
+	// We check if current permissions differ from 0644.
+	// We mask with 0777 to ignore file type bits.
+	if mode.Perm() != 0o644 {
+		if config.Write {
+			config.Log(LogInfo, "Fixing permissions for %s (was %o)\n", filename, mode.Perm())
+			if err := os.Chmod(filename, 0o644); err != nil {
+				return false, fmt.Errorf("failed to chmod %s: %w", filename, err)
+			}
+			return true, nil
+		} else {
+			config.Log(LogInfo, "[DRY-RUN] Would fix permissions for %s (is %o)\n", filename, mode.Perm())
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 type FixStats struct {
-	MBIDsFixed    bool
-	CoverEmbedded bool
+	MBIDsFixed       bool
+	CoverEmbedded    bool
+	PermissionsFixed bool
 }
 
 func fixFlac(filename string, config Config) (FixStats, error) {
 	stats := FixStats{}
 	config.Log(LogVerbose, "Processing %s\n", filename)
+
+	// Check/Fix Permissions
+	permFixed, err := processPermissions(filename, config)
+	if err != nil {
+		return stats, err
+	}
+	if permFixed {
+		stats.PermissionsFixed = true
+	}
 
 	f, err := flac.ParseFile(filename)
 	if err != nil {
@@ -680,6 +715,9 @@ func runWithProgress(path string, info os.FileInfo, config Config) error {
 			if config.EmbedCover {
 				fmt.Printf("Files with Covers Embedded: %d\n", finalM.stats.coverEmbedded)
 			}
+			if finalM.stats.permissionsFixed > 0 {
+				fmt.Printf("Files with Permissions Fixed: %d\n", finalM.stats.permissionsFixed)
+			}
 		}
 	}
 
@@ -712,7 +750,7 @@ func processFiles(path string, info os.FileInfo, config Config, msgChan chan tea
 	defer func() { msgChan <- doneMsg{} }()
 
 	// Custom logger for config
-	config.LogFunc = func(level LogLevel, format string, args ...interface{}) {
+	config.LogFunc = func(level LogLevel, format string, args ...any) {
 		if level == LogInfo || level == LogWarn {
 			msgChan <- statusMsg(fmt.Sprintf(format, args...))
 		}
@@ -747,6 +785,9 @@ func processFiles(path string, info os.FileInfo, config Config, msgChan chan tea
 					}
 					if fs.CoverEmbedded {
 						stats.CoverEmbedded = true
+					}
+					if fs.PermissionsFixed {
+						stats.PermissionsFixed = true
 					}
 				}
 
@@ -790,6 +831,9 @@ func processFiles(path string, info os.FileInfo, config Config, msgChan chan tea
 			if fs.CoverEmbedded {
 				stats.CoverEmbedded = true
 			}
+			if fs.PermissionsFixed {
+				stats.PermissionsFixed = true
+			}
 		}
 
 		if processingErr != nil {
@@ -810,16 +854,18 @@ const (
 )
 
 type Stats struct {
-	mbMerged      int
-	coverEmbedded int
-	converted     int
+	mbMerged         int
+	coverEmbedded    int
+	converted        int
+	permissionsFixed int
 }
 
 type (
 	StatsMsg struct {
-		MBMerged      bool
-		CoverEmbedded bool
-		Converted     bool
+		MBMerged         bool
+		CoverEmbedded    bool
+		Converted        bool
+		PermissionsFixed bool
 	}
 	statusMsg string
 	doneMsg   struct{}
@@ -910,6 +956,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if msg.CoverEmbedded {
 				m.stats.coverEmbedded++
+			}
+			if msg.PermissionsFixed {
+				m.stats.permissionsFixed++
 			}
 			if msg.Converted {
 				m.stats.converted++
