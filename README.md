@@ -26,8 +26,10 @@ only feature Artist A.
 detects multiple instances of specific ID tags (`MUSICBRAINZ_ARTISTID`,
 `MUSICBRAINZ_ALBUMARTISTID`, and `MUSICBRAINZ_RELEASE_ARTISTID`) and
 merges them into a single tag with values separated by `+`. This
-prevents the LMS bug while preserving the data integrity (LMS sees the
+prevents the LMS "bug" while preserving the data integrity (LMS sees the
 composite ID as a unique entity).
+
+*Note: the developers of LMS don't see the current behaviour as wrong or a bug. While I don't understand their explanation, they may still be right in the general case over all usage patterns - what do I know. But for me this little tool fixed some extremely annoying behaviour showing up suddenly (on the dev version at least) after years and years of "just working as expected".*
 
 ## Additional Features
 
